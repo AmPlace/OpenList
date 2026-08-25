@@ -176,7 +176,13 @@ func transfer(ctx context.Context, taskType taskType, srcObjPath, dstDirPath str
 	return t, nil
 }
 
-func (t *FileTransferTask) RunWithNextTaskCallback(f func(nextTask *FileTransferTask) error) error {
+func (t *FileTransferTask) RunWithNextTaskCallback(f func(nextTask *FileTransferTask) error) (err error) {
+	defer func() {
+		if err != nil {
+			t.observe115CopyError(err)
+		}
+	}()
+
 	t.Status = "getting src object"
 	srcObj, err := op.Get(t.Ctx(), t.SrcStorage, t.SrcActualPath)
 	if err != nil {
@@ -242,6 +248,15 @@ func (t *FileTransferTask) RunWithNextTaskCallback(f func(nextTask *FileTransfer
 		}
 		t.Status = fmt.Sprintf("src object is dir, added all %s tasks of objs", t.TaskType)
 		return nil
+	}
+
+	var limiter *copyStorageLimiter
+	if is115CopySource(t.SrcStorage) {
+		limiter = pan115CopyLimiters.get(t.SrcStorage)
+		if err := limiter.acquire(t.Ctx()); err != nil {
+			return err
+		}
+		defer limiter.release()
 	}
 
 	t.Status = "getting src object link"
