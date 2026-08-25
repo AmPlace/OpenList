@@ -30,9 +30,9 @@ func (d *Wopan) GetAddition() driver.Additional {
 }
 
 func (d *Wopan) Init(ctx context.Context) error {
-	d.uploadThread, _ = strconv.Atoi(d.UploadThread)
+	d.uploadThread = int(d.UploadThread)
 	if d.uploadThread < 1 || d.uploadThread > maxUploadThreads {
-		d.uploadThread, d.UploadThread = 1, "1"
+		d.uploadThread, d.UploadThread = 1, 1
 	}
 
 	d.client = wopan.DefaultWithRefreshToken(d.RefreshToken)

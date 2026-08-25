@@ -19,6 +19,18 @@ import (
 	"github.com/OpenListTeam/wopan-sdk-go"
 )
 
+func TestUploadThreadValueAcceptsStringAndNumber(t *testing.T) {
+	for _, raw := range []string{`16`, `"16"`} {
+		var got UploadThreadValue
+		if err := json.Unmarshal([]byte(raw), &got); err != nil {
+			t.Fatalf("unmarshal %s: %v", raw, err)
+		}
+		if got != 16 {
+			t.Fatalf("unmarshal %s = %d, want 16", raw, got)
+		}
+	}
+}
+
 func TestUpload2CParallelUploadsPartsConcurrently(t *testing.T) {
 	const threadLimit = 3
 	partSize := wopan.DefaultPartSize
@@ -136,7 +148,7 @@ func TestUpload2CParallelUploadsPartsConcurrently(t *testing.T) {
 	)
 	client.ZoneURL = "http://unit.test"
 	d := &Wopan{
-		Addition:     Addition{UploadThread: strconv.Itoa(threadLimit)},
+		Addition:     Addition{UploadThread: UploadThreadValue(threadLimit)},
 		uploadThread: threadLimit,
 		client:       client,
 	}
