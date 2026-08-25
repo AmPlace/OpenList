@@ -12,6 +12,7 @@ import (
 	"github.com/OpenListTeam/OpenList/v4/internal/driver"
 	"github.com/OpenListTeam/OpenList/v4/internal/errs"
 	"github.com/OpenListTeam/OpenList/v4/internal/model"
+	openlistnet "github.com/OpenListTeam/OpenList/v4/internal/net"
 	"github.com/OpenListTeam/OpenList/v4/pkg/cron"
 	"github.com/OpenListTeam/OpenList/v4/pkg/utils"
 	"github.com/go-resty/resty/v2"
@@ -154,6 +155,19 @@ func (y *Cloud189PC) List(ctx context.Context, dir model.Obj, args model.ListArg
 	return y.getFiles(ctx, dir.GetID(), y.isFamily())
 }
 
+func newCloud189PCDownloadLink(url string) *model.Link {
+	return &model.Link{
+		URL: url,
+		Header: http.Header{
+			"User-Agent": []string{base.UserAgent},
+		},
+		// Enable ranged multi-request downloads for cloud-to-cloud transfers
+		// and proxied reads. Direct redirects remain client-controlled.
+		Concurrency: openlistnet.DefaultDownloadConcurrency,
+		PartSize:    openlistnet.DefaultDownloadPartSize,
+	}
+}
+
 func (y *Cloud189PC) Link(ctx context.Context, file model.Obj, args model.LinkArgs) (*model.Link, error) {
 	var downloadUrl struct {
 		URL string `json:"fileDownloadUrl"`
@@ -195,12 +209,7 @@ func (y *Cloud189PC) Link(ctx context.Context, file model.Obj, args model.LinkAr
 		downloadUrl.URL = res.Header().Get("location")
 	}
 
-	like := &model.Link{
-		URL: downloadUrl.URL,
-		Header: http.Header{
-			"User-Agent": []string{base.UserAgent},
-		},
-	}
+	like := newCloud189PCDownloadLink(downloadUrl.URL)
 	/*
 		// 获取链接有效时常
 		strs := regexp.MustCompile(`(?i)expire[^=]*=([0-9]*)`).FindStringSubmatch(downloadUrl.URL)

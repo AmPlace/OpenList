@@ -3,7 +3,19 @@ package _189pc
 import (
 	"testing"
 	"time"
+
+	openlistnet "github.com/OpenListTeam/OpenList/v4/internal/net"
 )
+
+func TestCloud189PCDownloadLinkUsesRangeConcurrency(t *testing.T) {
+	link := newCloud189PCDownloadLink("https://download.example/file")
+	if link.Concurrency != openlistnet.DefaultDownloadConcurrency {
+		t.Fatalf("download concurrency = %d, want %d", link.Concurrency, openlistnet.DefaultDownloadConcurrency)
+	}
+	if link.PartSize != openlistnet.DefaultDownloadPartSize {
+		t.Fatalf("download part size = %d, want %d", link.PartSize, openlistnet.DefaultDownloadPartSize)
+	}
+}
 
 func TestTimeUnmarshal(t *testing.T) {
 	tests := []struct {
