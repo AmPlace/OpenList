@@ -18,6 +18,7 @@ type Wopan struct {
 	Addition
 	client          *wopan.WoClient
 	defaultFamilyID string
+	uploadThread    int
 }
 
 func (d *Wopan) Config() driver.Config {
@@ -29,6 +30,11 @@ func (d *Wopan) GetAddition() driver.Additional {
 }
 
 func (d *Wopan) Init(ctx context.Context) error {
+	d.uploadThread, _ = strconv.Atoi(d.UploadThread)
+	if d.uploadThread < 1 || d.uploadThread > maxUploadThreads {
+		d.uploadThread, d.UploadThread = 1, "1"
+	}
+
 	d.client = wopan.DefaultWithRefreshToken(d.RefreshToken)
 	d.client.SetAccessToken(d.AccessToken)
 	d.client.OnRefreshToken(func(accessToken, refreshToken string) {
@@ -152,6 +158,10 @@ func (d *Wopan) Remove(ctx context.Context, obj model.Obj) error {
 }
 
 func (d *Wopan) Put(ctx context.Context, dstDir model.Obj, stream model.FileStreamer, up driver.UpdateProgress) error {
+	if d.uploadThread > 1 {
+		return d.putParallel(ctx, dstDir, stream, up)
+	}
+
 	_, err := d.client.Upload2C(d.getSpaceType(), wopan.Upload2CFile{
 		Name:        stream.GetName(),
 		Size:        stream.GetSize(),

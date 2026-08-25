@@ -12,6 +12,7 @@ type Addition struct {
 	RefreshToken string `json:"refresh_token" required:"true"`
 	FamilyID     string `json:"family_id" help:"Keep it empty if you want to use your personal drive"`
 	SortRule     string `json:"sort_rule" type:"select" options:"name_asc,name_desc,time_asc,time_desc,size_asc,size_desc" default:"name_asc"`
+	UploadThread string `json:"upload_thread" type:"number" default:"1" help:"Number of concurrent part uploads (1-16)"`
 
 	AccessToken string `json:"access_token"`
 }
