@@ -155,6 +155,13 @@ func (l *copyStorageLimiter) currentLimit() int {
 	return l.limit
 }
 
+func (l *copyStorageLimiter) currentLimitForScheduling() int {
+	l.mu.Lock()
+	l.maybeProbeLocked(time.Now())
+	defer l.mu.Unlock()
+	return l.limit
+}
+
 type copyStorageLimiterRegistry struct {
 	mu       sync.Mutex
 	limiters map[string]*copyStorageLimiter

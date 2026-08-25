@@ -80,10 +80,16 @@ func (t *FileTransferTask) Run() error {
 
 func (t *FileTransferTask) OnSucceeded() {
 	task_group.TransferCoordinator.Done(context.WithoutCancel(t.Ctx()), t.groupID, true)
+	if (t.TaskType == copy || t.TaskType == merge) && CopyTaskManager != nil {
+		CopyTaskManager.taskFinished(t)
+	}
 }
 
 func (t *FileTransferTask) OnFailed() {
 	task_group.TransferCoordinator.Done(context.WithoutCancel(t.Ctx()), t.groupID, false)
+	if (t.TaskType == copy || t.TaskType == merge) && CopyTaskManager != nil {
+		CopyTaskManager.taskFinished(t)
+	}
 }
 
 func (t *FileTransferTask) SetRetry(retry int, maxRetry int) {
@@ -279,6 +285,6 @@ func (t *FileTransferTask) RunWithNextTaskCallback(f func(nextTask *FileTransfer
 }
 
 var (
-	CopyTaskManager *tache.Manager[*FileTransferTask]
+	CopyTaskManager *copyTaskManager
 	MoveTaskManager *tache.Manager[*FileTransferTask]
 )
