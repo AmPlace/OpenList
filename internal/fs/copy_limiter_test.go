@@ -68,12 +68,52 @@ func TestCopyStorageLimiterRespectsContext(t *testing.T) {
 	}
 }
 
-func TestCopyStorageLimiterReducesLimit(t *testing.T) {
+func TestCopyStorageLimiterProbesAndRecovers(t *testing.T) {
 	limiter := newCopyStorageLimiter(10)
-	limiter.reduceLimit(3)
-	limiter.reduceLimit(5)
+	start := time.Date(2026, time.August, 26, 0, 0, 0, 0, time.UTC)
+
+	limiter.onPmt(start)
 	if got := limiter.currentLimit(); got != 3 {
-		t.Fatalf("limit = %d, want 3", got)
+		t.Fatalf("after PMT limit = %d, want 3", got)
+	}
+
+	limiter.maybeProbe(start.Add(pan115CopyProbeInterval - time.Minute))
+	if got := limiter.currentLimit(); got != 3 {
+		t.Fatalf("before probe limit = %d, want 3", got)
+	}
+	limiter.maybeProbe(start.Add(pan115CopyProbeInterval))
+	if got := limiter.currentLimit(); got != 5 {
+		t.Fatalf("first probe limit = %d, want 5", got)
+	}
+	limiter.maybeProbe(start.Add(2 * pan115CopyProbeInterval))
+	if got := limiter.currentLimit(); got != 6 {
+		t.Fatalf("second probe limit = %d, want 6", got)
+	}
+	limiter.maybeProbe(start.Add(3 * pan115CopyProbeInterval))
+	if got := limiter.currentLimit(); got != 10 {
+		t.Fatalf("final probe limit = %d, want 10", got)
+	}
+
+	limiter.maybeProbe(start.Add(4 * pan115CopyProbeInterval))
+	limiter.onPmt(start.Add(4*pan115CopyProbeInterval + time.Minute))
+	if got := limiter.currentLimit(); got != 3 {
+		t.Fatalf("PMT at 10 limit = %d, want 3", got)
+	}
+}
+
+func TestCopyStorageLimiterProbePmtReturnsToStableLimit(t *testing.T) {
+	limiter := newCopyStorageLimiter(10)
+	start := time.Date(2026, time.August, 26, 0, 0, 0, 0, time.UTC)
+	limiter.onPmt(start)
+	limiter.maybeProbe(start.Add(pan115CopyProbeInterval))
+	limiter.onPmt(start.Add(pan115CopyProbeInterval + time.Minute))
+	if got := limiter.currentLimit(); got != 3 {
+		t.Fatalf("failed probe limit = %d, want 3", got)
+	}
+
+	limiter.onPmt(start.Add(2 * pan115CopyProbeInterval))
+	if got := limiter.currentLimit(); got != 1 {
+		t.Fatalf("repeated PMT limit = %d, want 1", got)
 	}
 }
 
