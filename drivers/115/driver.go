@@ -2,6 +2,7 @@ package _115
 
 import (
 	"context"
+	"net/http"
 	"strings"
 	"sync"
 
@@ -67,8 +68,31 @@ func (d *Pan115) Link(ctx context.Context, file model.Obj, args model.LinkArgs) 
 	if err := d.WaitLimit(ctx); err != nil {
 		return nil, err
 	}
-	userAgent := args.Header.Get("User-Agent")
-	downloadInfo, err := d.client.DownloadWithUA(file.(*FileObj).PickCode, userAgent)
+	pickCode := file.(*FileObj).PickCode
+
+	// 优先走播放接口直链：不计入同时下载任务上限，且通常更宽松的带宽策略。
+	if d.UseVideoLink && pickCode != "" {
+		if url, videoHeaders, err := d.getVideoLink(pickCode); err == nil && url != "" {
+			userAgent := args.Header.Get("User-Agent")
+			if userAgent == "" {
+				userAgent = d.getUA()
+			}
+			headers := http.Header{
+				"User-Agent": []string{userAgent},
+				"Referer":    []string{"https://115.com/"},
+			}
+			if cookie := videoHeaders.Get("Cookie"); cookie != "" {
+				headers.Set("Cookie", cookie)
+			}
+			return &model.Link{
+				URL:    url,
+				Header: headers,
+			}, nil
+		}
+		// 取链失败（非视频文件 / 非 VIP / 接口异常）则回退到原有 downurl。
+	}
+
+	downloadInfo, err := d.client.DownloadWithUA(pickCode, args.Header.Get("User-Agent"))
 	if err != nil {
 		return nil, err
 	}

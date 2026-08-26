@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
@@ -104,6 +105,55 @@ func (d *Pan115) getNewFileByPickCode(pickCode string) (*FileObj, error) {
 
 func (d *Pan115) getUA() string {
 	return fmt.Sprintf("Mozilla/5.0 115Browser/%s", appVer)
+}
+
+// videoLinkResp 对应 webapi.115.com/files/video 的响应结构（仅取下载所需字段）
+type videoLinkResp struct {
+	State         bool   `json:"state"`
+	OriginFileURL string `json:"origin_file_url"`
+	PreferOrigin  int    `json:"prefer_origin_file"`
+	FileSize      string `json:"file_size"`
+	FileName      string `json:"file_name"`
+}
+
+// Err 满足 SheltonZhu/115driver 的 ResultWithErr 接口（供 CheckErr 调用）。
+// 此处不解析 115 错误码，错误判定交由 getVideoLink 对 origin_file_url 的空值检查完成。
+func (r *videoLinkResp) Err(_ ...string) error { return nil }
+
+// getVideoLink 通过播放接口获取 origin_file_url 直链。
+// 该直链由 115 服务端生成并附带签名(k/t 参数)，客户端直接复用即可，无需反向签名算法。
+// 直链走播放管道，不计入客户端「同时下载任务」上限，且通常不限速。
+func (d *Pan115) getVideoLink(pickCode string) (string, http.Header, error) {
+	var result videoLinkResp
+	req := d.client.NewRequest().
+		SetQueryParams(map[string]string{
+			"pick_code":            pickCode,
+			"supports_origin_file": "1",
+		}).
+		ForceContentType("application/json;charset=UTF-8").
+		SetResult(&result)
+	resp, err := req.Get("https://webapi.115.com/files/video")
+	if err := driver115.CheckErr(err, &result, resp); err != nil {
+		return "", nil, err
+	}
+	if result.OriginFileURL == "" {
+		return "", nil, errors.New("files/video returned no origin_file_url")
+	}
+
+	// The CDN requires the path-scoped cookie returned by this
+	// response. The downloader uses a separate HTTP client, so it cannot rely
+	// on the 115 driver's resty cookie jar.
+	headers := make(http.Header)
+	responseCookies := make([]string, 0, len(resp.Cookies()))
+	for _, cookie := range resp.Cookies() {
+		if cookie != nil && cookie.Name != "" {
+			responseCookies = append(responseCookies, cookie.Name+"="+cookie.Value)
+		}
+	}
+	if len(responseCookies) > 0 {
+		headers.Set("Cookie", strings.Join(responseCookies, "; "))
+	}
+	return result.OriginFileURL, headers, nil
 }
 
 func (c *Pan115) GenerateToken(fileID, preID, timeStamp, fileSize, signKey, signVal string) string {

@@ -11,6 +11,10 @@ type Addition struct {
 	QRCodeSource string  `json:"qrcode_source" type:"select" options:"web,android,ios,tv,alipaymini,wechatmini,qandroid" default:"linux" help:"select the QR code device, default linux"`
 	PageSize     int64   `json:"page_size" type:"number" default:"1000" help:"list api per page size of 115 driver"`
 	LimitRate    float64 `json:"limit_rate" type:"float" default:"2" help:"limit all api request rate ([limit]r/1s)"`
+	// UseVideoLink 优先通过播放接口 webapi.115.com/files/video 获取 origin_file_url 直链下载。
+	// 该直链走播放管道，不计入 115 客户端「同时下载任务」的 10 个上限，且带宽策略通常更宽松。
+	// 取链失败时自动回退到原有 downurl 下载接口。
+	UseVideoLink bool `json:"use_video_link" type:"bool" default:"true" help:"prefer origin_file_url from files/video (bypasses 10 concurrent download-task limit)"`
 	driver.RootID
 }
 
