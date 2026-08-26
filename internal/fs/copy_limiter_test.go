@@ -72,48 +72,44 @@ func TestCopyStorageLimiterProbesAndRecovers(t *testing.T) {
 	limiter := newCopyStorageLimiter(10)
 	start := time.Date(2026, time.August, 26, 0, 0, 0, 0, time.UTC)
 
-	limiter.onPmt(start)
-	if got := limiter.currentLimit(); got != 3 {
-		t.Fatalf("after PMT limit = %d, want 3", got)
+	limiter.onPmt(start, 11, 10)
+	if got := limiter.currentLimit(); got != 10 {
+		t.Fatalf("after PMT limit = %d, want 10", got)
 	}
 
 	limiter.maybeProbe(start.Add(pan115CopyProbeInterval - time.Minute))
-	if got := limiter.currentLimit(); got != 3 {
-		t.Fatalf("before probe limit = %d, want 3", got)
-	}
-	limiter.maybeProbe(start.Add(pan115CopyProbeInterval))
-	if got := limiter.currentLimit(); got != 5 {
-		t.Fatalf("first probe limit = %d, want 5", got)
-	}
-	limiter.maybeProbe(start.Add(2 * pan115CopyProbeInterval))
-	if got := limiter.currentLimit(); got != 6 {
-		t.Fatalf("second probe limit = %d, want 6", got)
-	}
-	limiter.maybeProbe(start.Add(3 * pan115CopyProbeInterval))
 	if got := limiter.currentLimit(); got != 10 {
-		t.Fatalf("final probe limit = %d, want 10", got)
+		t.Fatalf("before probe limit = %d, want 10", got)
 	}
 
-	limiter.maybeProbe(start.Add(4 * pan115CopyProbeInterval))
-	limiter.onPmt(start.Add(4*pan115CopyProbeInterval + time.Minute))
-	if got := limiter.currentLimit(); got != 3 {
-		t.Fatalf("PMT at 10 limit = %d, want 3", got)
+	limiter.onPmt(start.Add(time.Minute), 11, 5)
+	if got := limiter.currentLimit(); got != 5 {
+		t.Fatalf("server limit update = %d, want 5", got)
+	}
+	limiter.maybeProbe(start.Add(time.Minute + pan115CopyProbeInterval))
+	if got := limiter.currentLimit(); got != 6 {
+		t.Fatalf("first probe limit = %d, want 6", got)
+	}
+	limiter.maybeProbe(start.Add(time.Minute + 2*pan115CopyProbeInterval))
+	if got := limiter.currentLimit(); got != 10 {
+		t.Fatalf("second probe limit = %d, want 10", got)
 	}
 }
 
 func TestCopyStorageLimiterProbePmtReturnsToStableLimit(t *testing.T) {
 	limiter := newCopyStorageLimiter(10)
 	start := time.Date(2026, time.August, 26, 0, 0, 0, 0, time.UTC)
-	limiter.onPmt(start)
+	limiter.onPmt(start, 11, 5)
 	limiter.maybeProbe(start.Add(pan115CopyProbeInterval))
-	limiter.onPmt(start.Add(pan115CopyProbeInterval + time.Minute))
-	if got := limiter.currentLimit(); got != 3 {
-		t.Fatalf("failed probe limit = %d, want 3", got)
+	limiter.onPmt(start.Add(pan115CopyProbeInterval+time.Minute), 11, 5)
+	if got := limiter.currentLimit(); got != 5 {
+		t.Fatalf("failed probe limit = %d, want 5", got)
 	}
 
-	limiter.onPmt(start.Add(2 * pan115CopyProbeInterval))
-	if got := limiter.currentLimit(); got != 1 {
-		t.Fatalf("repeated PMT limit = %d, want 1", got)
+	limiter.maybeProbe(start.Add(2*pan115CopyProbeInterval + time.Minute))
+	limiter.onPmt(start.Add(2*pan115CopyProbeInterval+2*time.Minute), 11, 10)
+	if got := limiter.currentLimit(); got != 6 {
+		t.Fatalf("higher server limit must not raise active probe limit = %d, want 6", got)
 	}
 }
 
@@ -137,5 +133,51 @@ func TestIs115PmtError(t *testing.T) {
 	non115 := &copyLimiterTestDriver{name: "189 Cloud"}
 	if is115PmtError(non115, errors.New("request failed: 115 PMT limit")) {
 		t.Fatal("115 PMT error from another driver should be ignored")
+	}
+}
+
+func TestParse115PmtUser(t *testing.T) {
+	tests := []struct {
+		name    string
+		message string
+		wantObs int
+		wantMax int
+		wantOK  bool
+	}{
+		{
+			name:    "wrapped 11 over 10",
+			message: `failed: response: {"message":"115 pmt user 11-10","status":403}`,
+			wantObs: 11,
+			wantMax: 10,
+			wantOK:  true,
+		},
+		{
+			name:    "case and spacing",
+			message: "115 PMT user 15 - 10",
+			wantObs: 15,
+			wantMax: 10,
+			wantOK:  true,
+		},
+		{
+			name:    "missing detail",
+			message: "115 pmt limit",
+			wantOK:  false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotObs, gotMax, gotOK := parse115PmtUser(errors.New(tt.message))
+			if gotObs != tt.wantObs || gotMax != tt.wantMax || gotOK != tt.wantOK {
+				t.Fatalf("parse115PmtUser() = (%d, %d, %t), want (%d, %d, %t)", gotObs, gotMax, gotOK, tt.wantObs, tt.wantMax, tt.wantOK)
+			}
+		})
+	}
+}
+
+func TestCopyStorageLimiterIgnoresUnstructuredPmt(t *testing.T) {
+	limiter := newCopyStorageLimiter(10)
+	limiter.onPmt(time.Date(2026, time.August, 26, 0, 0, 0, 0, time.UTC), 0, 0)
+	if got := limiter.currentLimit(); got != 10 {
+		t.Fatalf("unstructured PMT limit = %d, want 10", got)
 	}
 }

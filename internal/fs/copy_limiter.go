@@ -2,6 +2,8 @@ package fs
 
 import (
 	"context"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -11,12 +13,13 @@ import (
 
 const (
 	pan115CopyLimit         = 10
-	pan115PmtCopyLimit      = 3
 	pan115CopyProbeInterval = time.Hour
 	pan115PmtKeyword        = "115 pmt"
 )
 
 var pan115CopyLimitSteps = [...]int{1, 3, 5, 6, 10}
+
+var pan115PmtUserPattern = regexp.MustCompile(`(?i)\b115\s+pmt\b.*?\buser\s+(\d+)\s*-\s*(\d+)\b`)
 
 type copyStorageLimiter struct {
 	mu          sync.Mutex
@@ -64,18 +67,21 @@ func (l *copyStorageLimiter) release() {
 	l.mu.Unlock()
 }
 
-func (l *copyStorageLimiter) onPmt(now time.Time) {
+func (l *copyStorageLimiter) onPmt(now time.Time, observed, allowed int) {
 	l.mu.Lock()
-	fallback := previous115CopyLimit(l.limit)
-	if l.probing && l.probeFrom > 0 {
-		fallback = l.probeFrom
-	}
 	l.probing = false
 	l.probeFrom = 0
 	l.nextProbeAt = now.Add(pan115CopyProbeInterval)
-	if fallback != l.limit {
-		l.limit = fallback
-		l.notifyLocked()
+
+	if observed > allowed && allowed > 0 {
+		// The second number is the server-reported account limit. For example,
+		// user 11-10 sets the local limit to 10, while user 11-5 sets it to 5.
+		// Do not raise a limit that is already lower due to an earlier probe.
+		target := allowed
+		if target < l.limit {
+			l.limit = target
+			l.notifyLocked()
+		}
 	}
 	l.mu.Unlock()
 }
@@ -131,24 +137,6 @@ func next115CopyLimit(current int) int {
 	return current
 }
 
-func previous115CopyLimit(current int) int {
-	if current >= pan115CopyLimit {
-		return pan115PmtCopyLimit
-	}
-	for i, limit := range pan115CopyLimitSteps {
-		if limit == current {
-			if i == 0 {
-				return current
-			}
-			return pan115CopyLimitSteps[i-1]
-		}
-	}
-	if current > pan115PmtCopyLimit {
-		return pan115PmtCopyLimit
-	}
-	return 1
-}
-
 func (l *copyStorageLimiter) currentLimit() int {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -196,8 +184,25 @@ func is115PmtError(storage driver.Driver, err error) bool {
 	return is115CopySource(storage) && err != nil && strings.Contains(strings.ToLower(err.Error()), pan115PmtKeyword)
 }
 
+func parse115PmtUser(err error) (observed, allowed int, ok bool) {
+	if err == nil {
+		return 0, 0, false
+	}
+	matches := pan115PmtUserPattern.FindStringSubmatch(err.Error())
+	if len(matches) != 3 {
+		return 0, 0, false
+	}
+	observed, errObserved := strconv.Atoi(matches[1])
+	allowed, errAllowed := strconv.Atoi(matches[2])
+	if errObserved != nil || errAllowed != nil || observed < 0 || allowed < 0 {
+		return 0, 0, false
+	}
+	return observed, allowed, true
+}
+
 func (t *FileTransferTask) observe115CopyError(err error) {
 	if is115PmtError(t.SrcStorage, err) {
-		pan115CopyLimiters.get(t.SrcStorage).onPmt(time.Now())
+		observed, allowed, _ := parse115PmtUser(err)
+		pan115CopyLimiters.get(t.SrcStorage).onPmt(time.Now(), observed, allowed)
 	}
 }
